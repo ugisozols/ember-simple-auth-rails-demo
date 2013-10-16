@@ -1,5 +1,5 @@
-Ember.js, Ember.SimpleAuth and Rails 4 demo
-===========================================
+Ember.SimpleAuth and Rails 4 demo
+==================================
 
 This is a demo on how to use Ember.js with Ember.SimpleAuth plugin and Rails 4
 for the backend stuff + assets management.
@@ -19,6 +19,6 @@ And that's it. Now launch `rails server` and open http://127.0.0.1:3000. You can
 login with the following credentials:
 
 ```
-user: ember
+login: ember
 password: password
 ```
