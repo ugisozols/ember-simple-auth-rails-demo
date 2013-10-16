@@ -1,0 +1,9 @@
+{{#if session.isAuthenticated}}
+  {{#link-to 'logout'}}Logout{{/link-to}}
+{{else}}
+  {{#link-to 'login'}}Login{{/link-to}}
+{{/if}}
+
+<hr>
+
+{{outlet}}
