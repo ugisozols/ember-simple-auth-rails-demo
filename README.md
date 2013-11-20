@@ -1,8 +1,12 @@
 Ember.SimpleAuth and Rails 4 demo
 ==================================
 
-This is a demo on how to use Ember.js with Ember.SimpleAuth plugin and Rails 4
-for the backend stuff + assets management.
+This is a demo on how to use Ember.js with [Ember.SimpleAuth](https://github.com/simplabs/ember-simple-auth) plugin and Rails 4 for the backend stuff + assets management.
+
+### Versions used
+
+* Ember.SimpleAuth - 0.0.8
+* Rails - 4.0.1
 
 ### Getting stuff to work
 
