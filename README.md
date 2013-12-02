@@ -27,3 +27,8 @@ login with the following credentials:
 login: ember
 password: password
 ```
+
+#### Test
+
+The example includes a sample integration test (see `test/javascripts/integration/login_test.js`). Start the server
+and open http://127.0.0.1:3000/qunit to run the test.
