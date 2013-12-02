@@ -37,7 +37,7 @@ GEM
     daemons (1.1.9)
     ember-data-source (0.14)
       ember-source
-    ember-rails (0.14.0)
+    ember-rails (0.14.1)
       active_model_serializers
       barber (>= 0.4.1)
       ember-data-source
@@ -46,12 +46,12 @@ GEM
       handlebars-source
       jquery-rails (>= 1.0.17)
       railties (>= 3.1)
-    ember-source (1.1.2)
-      handlebars-source (= 1.0.12)
+    ember-source (1.2.0.1)
+      handlebars-source (~> 1.1.2)
     erubis (2.7.0)
     eventmachine (1.0.3)
     execjs (2.0.2)
-    handlebars-source (1.0.12)
+    handlebars-source (1.1.2)
     hike (1.2.3)
     i18n (0.6.5)
     jquery-rails (3.0.4)
@@ -61,12 +61,14 @@ GEM
     mail (2.5.4)
       mime-types (~> 1.16)
       treetop (~> 1.4.8)
-    mime-types (1.25)
+    mime-types (1.25.1)
     minitest (4.7.5)
     multi_json (1.8.2)
     polyglot (0.3.3)
     quiet_assets (1.0.2)
       railties (>= 3.1, < 5.0)
+    qunit-rails (0.0.4)
+      railties (>= 3.2.3)
     rack (1.5.2)
     rack-test (0.6.2)
       rack (>= 1.0)
@@ -89,7 +91,7 @@ GEM
       railties (>= 4.0.0, < 5.0)
       sass (>= 3.1.10)
       sprockets-rails (~> 2.0.0)
-    sprockets (2.10.0)
+    sprockets (2.10.1)
       hike (~> 1.2)
       multi_json (~> 1.0)
       rack (~> 1.0)
@@ -111,7 +113,7 @@ GEM
       polyglot
       polyglot (>= 0.3.1)
     tzinfo (0.3.38)
-    uglifier (2.3.1)
+    uglifier (2.3.2)
       execjs (>= 0.3.0)
       json (>= 1.8.0)
 
@@ -120,9 +122,10 @@ PLATFORMS
 
 DEPENDENCIES
   ember-rails
-  ember-source (= 1.1.2)
+  ember-source
   jquery-rails
   quiet_assets
+  qunit-rails
   rails (= 4.0.1)
   sass-rails (~> 4.0.1)
   sqlite3
