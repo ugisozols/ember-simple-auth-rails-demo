@@ -1,5 +1,5 @@
-// Version: 0.0.8
-// Last commit: 2d29d20 (2013-11-14 19:53:50 +0100)
+// Version: 0.0.9-3-g963cfcd
+// Last commit: 963cfcd (2013-12-02 23:11:11 +0100)
 
 
 (function() {
@@ -223,8 +223,10 @@ Ember.SimpleAuth.Session = Ember.Object.extend({
       refreshToken:    this.load('refreshToken'),
       authTokenExpiry: this.load('authTokenExpiry')
     });
-    Ember.run.cancel(Ember.SimpleAuth.Session._syncPropertiesTimeout);
-    Ember.SimpleAuth.Session._syncPropertiesTimeout = Ember.run.later(this, this.syncProperties, 500);
+    if (!Ember.testing) {
+      Ember.run.cancel(Ember.SimpleAuth.Session._syncPropertiesTimeout);
+      Ember.SimpleAuth.Session._syncPropertiesTimeout = Ember.run.later(this, this.syncProperties, 500);
+    }
   },
 
   /**
@@ -411,10 +413,19 @@ Ember.SimpleAuth.LoginControllerMixin = Ember.Mixin.create({
     @method tokenRequestOptions
     @param {String} identification The user's identification (user name or email address or whatever is used to identify the user)
     @param {String} password The user's password
+    @param {String} client_id The (optional) client id (see http://tools.ietf.org/html/rfc6749#section-3.2.1)
+    @param {String} client_secret The (optional) client secret (see http://tools.ietf.org/html/rfc6749#section-3.2.1)
     @return {Object} The request options to be passed to Ember.$.ajax (see http://api.jquery.com/jQuery.ajax/ for detailed documentation)
   */
-  tokenRequestOptions: function(identification, password) {
-    var postData = ['grant_type=password', 'username=' + identification, 'password=' + password].join('&');
+  tokenRequestOptions: function(identification, password, client_id, client_secret) {
+    var postData = ['grant_type=password', 'username=' + identification, 'password=' + password];
+    if (!Ember.isEmpty(client_id)) {
+      postData.push('client_id=' + client_id);
+      if (!Ember.isEmpty(client_id)) {
+        postData.push('client_secret=' + client_secret);
+      }
+    }
+    postData = postData.join('&');
     return { type: 'POST', data: postData, contentType: 'application/x-www-form-urlencoded' };
   },
   actions: {
@@ -424,15 +435,19 @@ Ember.SimpleAuth.LoginControllerMixin = Ember.Mixin.create({
     */
     login: function() {
       var _this = this;
-      var data = this.getProperties('identification', 'password');
+      var data = this.getProperties('identification', 'password', 'client_id', 'client_secret');
       if (!Ember.isEmpty(data.identification) && !Ember.isEmpty(data.password)) {
         this.set('password', undefined);
-        var requestOptions = this.tokenRequestOptions(data.identification, data.password);
+        var requestOptions = this.tokenRequestOptions(data.identification, data.password, data.client_id, data.client_secret);
         Ember.$.ajax(Ember.SimpleAuth.serverTokenEndpoint, requestOptions).then(function(response) {
-          _this.get('session').setup(response);
-          _this.send('loginSucceeded');
+          Ember.run(function() {
+            _this.get('session').setup(response);
+            _this.send('loginSucceeded');
+          });
         }, function(xhr, status, error) {
-          _this.send('loginFailed', xhr, status, error);
+          Ember.run(function() {
+            _this.send('loginFailed', xhr, status, error);
+          });
         });
       }
     }
