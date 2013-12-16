@@ -1,5 +1,5 @@
-// Version: 0.0.9-3-g963cfcd
-// Last commit: 963cfcd (2013-12-02 23:11:11 +0100)
+// Version: 0.0.11
+// Last commit: 877c4a4 (2013-12-03 20:34:53 +0100)
 
 
 (function() {
@@ -72,7 +72,10 @@ Ember.SimpleAuth.setup = function(container, application, options) {
       Ember.SimpleAuth._links[url] = link;
       return link;
     }();
-    return this.crossOriginWhitelist.indexOf(link.origin) > -1 || link.origin === window.location.origin;
+    function formatLocation(location) { return location.protocol + '//' + location.hostname + (location.port !== '' ? ':' + location.port : ''); }
+    var linkOrigin       = formatLocation(link);
+    this._locationOrigin = formatLocation(window.location);
+    return this.crossOriginWhitelist.indexOf(linkOrigin) > -1 || linkOrigin === this._locationOrigin;
   },
 
   /**
