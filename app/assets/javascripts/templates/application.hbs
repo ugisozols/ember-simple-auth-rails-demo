@@ -1,7 +1,7 @@
 {{#if session.isAuthenticated}}
-  <button {{ action 'logout' }}>Logout</button>
+  <button {{ action 'invalidateSession' }}>Logout</button>
 {{else}}
-  <button {{ action 'login' }}>Login</button>
+  <button {{ action 'authenticateSession' }}>Login</button>
 {{/if}}
 
 <hr>
