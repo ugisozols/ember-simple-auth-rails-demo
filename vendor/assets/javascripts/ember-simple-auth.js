@@ -1,4 +1,4 @@
- // Version: 0.1.0
+ // Version: 0.1.1
 
 (function() {
 'use strict';
@@ -113,6 +113,10 @@ Ember.SimpleAuth = Ember.Namespace.create({
     var link = this._linkOrigins[url] || function() {
       var link = document.createElement('a');
       link.href = url;
+      //IE requires the following line when url is relative.
+      //First assignment of relative url to link.href results in absolute url on link.href but link.hostname and other properties are not set
+      //Second assignment of absolute url to link.href results in link.hostname and other properties being set as expected
+      link.href = link.href;
       return (this._linkOrigins[url] = link);
     }.apply(this);
     var linkOrigin = extractLocationOrigin(link);
@@ -318,6 +322,7 @@ Ember.SimpleAuth.Session = Ember.ObjectProxy.extend({
   */
   bindToAuthenticatorEvents: function() {
     var _this = this;
+    this.authenticator.off('ember-simple-auth:session-updated');
     this.authenticator.on('ember-simple-auth:session-updated', function(content) {
       _this.setup(_this.authenticator, content);
     });
@@ -459,6 +464,26 @@ Ember.SimpleAuth.Authorizers.OAuth2 = Ember.SimpleAuth.Authorizers.Base.extend({
   Authenticators may trigger the `'ember-simple-auth:session-updated'` event
   when any of the session properties change. The session listens to that event
   and will handle the changes accordingly.
+
+  __Custom authenticators have to be defined in the applications's namespace__;
+  otherwise their class name cannot be auto-detected and the session
+  restoration mechanism breaks (see
+  [Ember.SimpleAuth.Authenticators.Base#restore](#Ember-SimpleAuth-Authenticators-Base-restore)).
+  So instead of this:
+
+  ```javascript
+  var CustomAuthenticator = Ember.SimpleAuth.Authenticators.Base.extend({
+    ...
+  });
+  ```
+
+  the authenticator should be defined like this:
+
+  ```javascript
+  App.CustomAuthenticator = Ember.SimpleAuth.Authenticators.Base.extend({
+    ...
+  });
+  ```
 
   @class Base
   @namespace Ember.SimpleAuth.Authenticators
@@ -602,7 +627,7 @@ Ember.SimpleAuth.Authenticators.OAuth2 = Ember.SimpleAuth.Authenticators.Base.ex
     var _this = this;
     return new Ember.RSVP.Promise(function(resolve, reject) {
       if (!Ember.isEmpty(properties.access_token)) {
-        _this.scheduleAccessTokenRefresh(properties.expires_in, properties.refresh_token);
+        _this.scheduleAccessTokenRefresh(properties.expires_in, properties.expires_at, properties.refresh_token);
         resolve(properties);
       } else {
         reject();
@@ -634,8 +659,9 @@ Ember.SimpleAuth.Authenticators.OAuth2 = Ember.SimpleAuth.Authenticators.Base.ex
       var data = { grant_type: 'password', username: credentials.identification, password: credentials.password };
       _this.makeRequest(data).then(function(response) {
         Ember.run(function() {
-          _this.scheduleAccessTokenRefresh(response.expires_in, response.refresh_token);
-          resolve(response);
+          var expiresAt = _this.absolutizeExpirationTime(response.expires_in);
+          _this.scheduleAccessTokenRefresh(response.expires_in, expiresAt, response.refresh_token);
+          resolve(Ember.$.extend(response, { expires_at: expiresAt }));
         });
       }, function(xhr, status, error) {
         Ember.run(function() {
@@ -658,43 +684,18 @@ Ember.SimpleAuth.Authenticators.OAuth2 = Ember.SimpleAuth.Authenticators.Base.ex
   },
 
   /**
-    @method scheduleAccessTokenRefresh
-    @private
-  */
-  scheduleAccessTokenRefresh: function(expiry, refreshToken) {
-    var _this = this;
-    if (this.refreshAccessTokens) {
-      Ember.run.cancel(this._refreshTokenTimeout);
-      delete this._refreshTokenTimeout;
-      var waitTime = (expiry || 0) * 1000 - 5000; //refresh token 5 seconds before it expires
-      if (!Ember.isEmpty(refreshToken) && waitTime > 0) {
-        this._refreshTokenTimeout = Ember.run.later(this, this.refreshAccessToken, expiry, refreshToken, waitTime);
-      }
-    }
-  },
+    Sends an `AJAX` request to the `serverTokenEndpoint`. This will always be a
+    _"POST_" request with content type _"application/x-www-form-urlencoded"_ as
+    specified in [RFC 6749](http://tools.ietf.org/html/rfc6749).
 
-  /**
-    @method refreshAccessToken
-    @private
-  */
-  refreshAccessToken: function(expiry, refreshToken) {
-    var _this = this;
-    var data  = { grant_type: 'refresh_token', refresh_token: refreshToken };
-    this.makeRequest(data).then(function(response) {
-      Ember.run(function() {
-        expiry       = response.expires_in || expiry;
-        refreshToken = response.refresh_token || refreshToken;
-        _this.scheduleAccessTokenRefresh(expiry, refreshToken);
-        _this.trigger('ember-simple-auth:session-updated', Ember.$.extend(response, { expires_in: expiry, refresh_token: refreshToken }));
-      });
-    }, function(xhr, status, error) {
-      Ember.Logger.warn('Access token could not be refreshed - server responded with ' + error + '.');
-    });
-  },
+    This method is not meant to be used directly but serves as an extension
+    point to e.g. add _"Client Credentials"_ (see
+    [RFC 6749, section 2.3](http://tools.ietf.org/html/rfc6749#section-2.3)).
 
-  /**
     @method makeRequest
-    @private
+    @param {Object} data The data to send with the request, e.g. username and password or the refresh token
+    @return {Deferred object} A Deferred object (see [the jQuery docs](http://api.jquery.com/category/deferred-object/)) that is compatible to Ember.RSVP.Promise; will resolve if the request succeeds, reject otherwise
+    @protected
   */
   makeRequest: function(data) {
     return Ember.$.ajax({
@@ -704,6 +705,56 @@ Ember.SimpleAuth.Authenticators.OAuth2 = Ember.SimpleAuth.Authenticators.Base.ex
       dataType:    'json',
       contentType: 'application/x-www-form-urlencoded'
     });
+  },
+
+  /**
+    @method scheduleAccessTokenRefresh
+    @private
+  */
+  scheduleAccessTokenRefresh: function(expiresIn, expiresAt, refreshToken) {
+    var _this = this;
+    if (this.refreshAccessTokens) {
+      Ember.run.cancel(this._refreshTokenTimeout);
+      delete this._refreshTokenTimeout;
+      var now = new Date();
+      if (Ember.isEmpty(expiresAt) && !Ember.isEmpty(expiresIn)) {
+        expiresAt = new Date(now.getTime() + (expiresIn - 5) * 1000).getTime();
+      }
+      if (!Ember.isEmpty(refreshToken) && !Ember.isEmpty(expiresAt) && expiresAt > now) {
+        var waitTime = expiresAt - now.getTime();
+        this._refreshTokenTimeout = Ember.run.later(this, this.refreshAccessToken, expiresIn, refreshToken, waitTime);
+      }
+    }
+  },
+
+  /**
+    @method refreshAccessToken
+    @private
+  */
+  refreshAccessToken: function(expiresIn, refreshToken) {
+    var _this = this;
+    var data  = { grant_type: 'refresh_token', refresh_token: refreshToken };
+    this.makeRequest(data).then(function(response) {
+      Ember.run(function() {
+        expiresIn     = response.expires_in || expiresIn;
+        refreshToken  = response.refresh_token || refreshToken;
+        var expiresAt = _this.absolutizeExpirationTime(expiresIn);
+        _this.scheduleAccessTokenRefresh(expiresIn, null, refreshToken);
+        _this.trigger('ember-simple-auth:session-updated', Ember.$.extend(response, { expires_in: expiresIn, expires_at: expiresAt, refresh_token: refreshToken }));
+      });
+    }, function(xhr, status, error) {
+      Ember.Logger.warn('Access token could not be refreshed - server responded with ' + error + '.');
+    });
+  },
+
+  /**
+    @method absolutizeExpirationTime
+    @private
+  */
+  absolutizeExpirationTime: function(expiresIn) {
+    if (!Ember.isEmpty(expiresIn)) {
+      return new Date((new Date().getTime()) + (expiresIn - 5) * 1000).getTime();
+    }
   }
 });
 
@@ -1219,9 +1270,9 @@ Ember.SimpleAuth.AuthenticationControllerMixin = Ember.Mixin.create({
   ```handlebars
   <form {{action login on='submit'}}>
     <label for="identification">Login</label>
-    {{view Ember.TextField id='identification' valueBinding='identification' placeholder='Enter Login'}}
+    {{input id='identification' placeholder='Enter Login' value=identification}}
     <label for="password">Password</label>
-    {{view Ember.TextField id='password' type='password' valueBinding='password' placeholder='Enter Password'}}
+    {{input id='password' placeholder='Enter Password' type='password' value=password}}
     <button type="submit">Login</button>
   </form>
   ```
@@ -1440,6 +1491,7 @@ Ember.SimpleAuth.ApplicationRouteMixin = Ember.Mixin.create({
       if (reason.status === 401) {
         this.send('authorizationFailed');
       }
+      return true;
     }
   }
 });
