@@ -5,9 +5,9 @@ This is a demo on how to use Ember.js with [Ember.SimpleAuth](https://github.com
 
 ### Versions used
 
-* Ember.js - 1.3.2
-* Ember.SimpleAuth - 0.1.1
-* Rails - 4.0.2
+* Ember.js - 1.4.0
+* Ember.SimpleAuth - 0.2.0
+* Rails - 4.0.3
 
 ### Getting stuff to work
 
