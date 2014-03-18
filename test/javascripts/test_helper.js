@@ -11,7 +11,7 @@ SimpleAuthDemo.injectTestHelpers();
 
 module('Integration Tests', {
   setup: function() {
-    document.cookie = 'authToken=;expires=Thu, 01 Jan 1970 00:00:01 GMT';
+    localStorage.clear();
     Ember.run(SimpleAuthDemo, SimpleAuthDemo.advanceReadiness);
     SimpleAuthDemo.reset();
   }
