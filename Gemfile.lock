@@ -47,7 +47,7 @@ GEM
       handlebars-source
       jquery-rails (>= 1.0.17)
       railties (>= 3.1)
-    ember-source (1.5.0)
+    ember-source (1.5.1.1)
       handlebars-source (~> 1.0)
     erubis (2.7.0)
     eventmachine (1.0.3)
@@ -126,7 +126,7 @@ PLATFORMS
 
 DEPENDENCIES
   ember-rails
-  ember-source (~> 1.5.0)
+  ember-source (~> 1.5.1)
   jquery-rails
   quiet_assets
   qunit-rails

@@ -11,6 +11,6 @@ gem "thin"
 gem "quiet_assets"
 
 gem 'ember-rails'
-gem 'ember-source', '~> 1.5.0'
+gem 'ember-source', '~> 1.5.1'
 
 gem 'qunit-rails'
