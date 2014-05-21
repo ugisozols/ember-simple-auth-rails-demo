@@ -24,6 +24,6 @@ module SimpleAuthDemo
     # config.i18n.load_path += Dir[Rails.root.join('my', 'locales', '*.{rb,yml}').to_s]
     # config.i18n.default_locale = :de
 
-    config.assets.precompile += %w( qunit test_helper )
+    config.assets.precompile += %w( qunit.css qunit.js test_helper.css test_helper.js )
   end
 end
