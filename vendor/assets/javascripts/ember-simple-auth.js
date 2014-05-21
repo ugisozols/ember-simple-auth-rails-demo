@@ -340,9 +340,8 @@ define("ember-simple-auth/core",
         'sessionInvalidationSucceeded',
         'sessionInvalidationFailed'
       ]).forEach(function(event) {
-        session.on(event, function() {
-          Array.prototype.unshift.call(arguments, event);
-          router.send.apply(router, arguments);
+        session.on(event, function(error) {
+          router.send(event, error);
         });
       });
       return session;
@@ -382,12 +381,25 @@ define("ember-simple-auth/core",
       routeAfterAuthentication: 'index',
 
       /**
+        The name of the property that the session is injected with into routes and
+        controllers; should be set through
+        [Ember.SimpleAuth.setup](#Ember-SimpleAuth-setup).
+
+        @property sessionPropertyName
+        @readOnly
+        @static
+        @type String
+        @default 'session'
+      */
+      sessionPropertyName: 'session',
+
+      /**
         @property applicationRootUrl
         @static
         @private
         @type String
       */
-      applicationRootUrl: null,
+      applicationRootUrl: null
     };
 
     /**
@@ -411,6 +423,7 @@ define("ember-simple-auth/core",
       @param {Object} options
         @param {String} [options.authorizerFactory] The authorizer factory to use as it is registered with Ember's container, see [Ember's API docs](http://emberjs.com/api/classes/Ember.Application.html#method_register); when the application does not interact with a server that requires authorized requests, no auzthorizer is needed
         @param {Object} [options.storeFactory] The store factory to use as it is registered with Ember's container, see [Ember's API docs](http://emberjs.com/api/classes/Ember.Application.html#method_register) - defaults to `session-stores:local-storage`
+        @param {Object} [options.sessionPropertyName] The name for the property that the session is injected with into routes and controllers - defaults to `session`
         @param {String} [options.authenticationRoute] route to transition to for authentication - defaults to `'login'`
         @param {String} [options.routeAfterAuthentication] route to transition to after successful authentication - defaults to `'index'`
         @param {Array[String]} [options.crossOriginWhitelist] Ember.SimpleAuth will never authorize requests going to a different origin than the one the Ember.js application was loaded from; to explicitely enable authorization for additional origins, whitelist those origins - defaults to `[]` _(beware that origins consist of protocol, host and port (port can be left out when it is 80 for HTTP or 443 for HTTPS))_
@@ -425,18 +438,19 @@ define("ember-simple-auth/core",
       options                                = options || {};
       Configuration.routeAfterAuthentication = options.routeAfterAuthentication || Configuration.routeAfterAuthentication;
       Configuration.authenticationRoute      = options.authenticationRoute || Configuration.authenticationRoute;
+      Configuration.sessionPropertyName      = options.sessionPropertyName || Configuration.sessionPropertyName;
       Configuration.applicationRootUrl       = container.lookup('router:main').get('rootURL') || '/';
       crossOriginWhitelist                   = Ember.A(options.crossOriginWhitelist || []).map(function(origin) {
         return extractLocationOrigin(origin);
       });
 
-      options.storeFactory = options.storeFactory || 'session-store:local-storage';
+      options.storeFactory = options.storeFactory || 'ember-simple-auth-session-store:local-storage';
       var store            = container.lookup(options.storeFactory);
       var session          = setupSession(store, container);
 
-      container.register('session:main', session, { instantiate: false });
+      container.register('ember-simple-auth-session:main', session, { instantiate: false });
       Ember.A(['controller', 'route']).forEach(function(component) {
-        container.injection(component, 'session', 'session:main');
+        container.injection(component, Configuration.sessionPropertyName, 'ember-simple-auth-session:main');
       });
 
       if (!Ember.isEmpty(options.authorizerFactory)) {
@@ -564,10 +578,10 @@ define("ember-simple-auth/mixins/application_route_mixin",
           @method actions.sessionAuthenticationSucceeded
         */
         sessionAuthenticationSucceeded: function() {
-          var attemptedTransition = this.get('session.attemptedTransition');
+          var attemptedTransition = this.get(Configuration.sessionPropertyName).get('attemptedTransition');
           if (attemptedTransition) {
             attemptedTransition.retry();
-            this.set('session.attemptedTransition', null);
+            this.get(Configuration.sessionPropertyName).set('attemptedTransition', null);
           } else {
             this.transitionTo(Configuration.routeAfterAuthentication);
           }
@@ -606,7 +620,7 @@ define("ember-simple-auth/mixins/application_route_mixin",
           @method actions.invalidateSession
         */
         invalidateSession: function() {
-          this.get('session').invalidate();
+          this.get(Configuration.sessionPropertyName).invalidate();
         },
 
         /**
@@ -643,7 +657,7 @@ define("ember-simple-auth/mixins/application_route_mixin",
           @method actions.authorizationFailed
         */
         authorizationFailed: function() {
-          this.get('session').invalidate();
+          this.get(Configuration.sessionPropertyName).invalidate();
         },
 
         /**
@@ -662,11 +676,13 @@ define("ember-simple-auth/mixins/application_route_mixin",
     __exports__.ApplicationRouteMixin = ApplicationRouteMixin;
   });
 define("ember-simple-auth/mixins/authenticated_route_mixin", 
-  ["exports"],
-  function(__exports__) {
+  ["./../core","exports"],
+  function(__dependency1__, __exports__) {
     "use strict";
     var global = (typeof window !== 'undefined') ? window : {},
         Ember = global.Ember;
+
+    var Configuration = __dependency1__.Configuration;
 
     /**
       The mixin for routes that require the session to be authenticated in order to
@@ -703,9 +719,9 @@ define("ember-simple-auth/mixins/authenticated_route_mixin",
         @param {Transition} transition The transition that lead to this route
       */
       beforeModel: function(transition) {
-        if (!this.get('session.isAuthenticated')) {
+        if (!this.get(Configuration.sessionPropertyName).get('isAuthenticated')) {
           transition.abort();
-          this.set('session.attemptedTransition', transition);
+          this.get(Configuration.sessionPropertyName).set('attemptedTransition', transition);
           transition.send('authenticateSession');
         }
       }
@@ -714,11 +730,13 @@ define("ember-simple-auth/mixins/authenticated_route_mixin",
     __exports__.AuthenticatedRouteMixin = AuthenticatedRouteMixin;
   });
 define("ember-simple-auth/mixins/authentication_controller_mixin", 
-  ["exports"],
-  function(__exports__) {
+  ["./../core","exports"],
+  function(__dependency1__, __exports__) {
     "use strict";
     var global = (typeof window !== 'undefined') ? window : {},
         Ember = global.Ember;
+
+    var Configuration = __dependency1__.Configuration;
 
     /**
       The mixin for the controller that handles the `authenticationRoute` specified
@@ -751,7 +769,7 @@ define("ember-simple-auth/mixins/authentication_controller_mixin",
           @param {Object} options Any options the auhtenticator needs to authenticate the session
         */
         authenticate: function(options) {
-          this.get('session').authenticate(this.get('authenticatorFactory'), options);
+          this.get(Configuration.sessionPropertyName).authenticate(this.get('authenticatorFactory'), options);
         }
       }
     });
@@ -759,13 +777,14 @@ define("ember-simple-auth/mixins/authentication_controller_mixin",
     __exports__.AuthenticationControllerMixin = AuthenticationControllerMixin;
   });
 define("ember-simple-auth/mixins/login_controller_mixin", 
-  ["./authentication_controller_mixin","exports"],
-  function(__dependency1__, __exports__) {
+  ["./../core","./authentication_controller_mixin","exports"],
+  function(__dependency1__, __dependency2__, __exports__) {
     "use strict";
     var global = (typeof window !== 'undefined') ? window : {},
         Ember = global.Ember;
 
-    var AuthenticationControllerMixin = __dependency1__.AuthenticationControllerMixin;
+    var Configuration = __dependency1__.Configuration;
+    var AuthenticationControllerMixin = __dependency2__.AuthenticationControllerMixin;
 
     /**
       The mixin to use with the controller that handles the `authenticationRoute`
@@ -831,7 +850,7 @@ define("ember-simple-auth/session",
       [Ember.SimpleAuth.Authenticators.Base#authenticate](#Ember-SimpleAuth-Authenticators-Base-authenticate)).
       It is created when Ember.SimpleAuth is set up (see
       [Ember.SimpleAuth.setup](#Ember-SimpleAuth-setup)) and __injected into all
-      models, controllers, routes and views so that all parts of the application
+      controllers and routes so that these parts of the application
       can always access the current authentication state and other data__,
       depending on the used authenticator and whether the session is actually
       authenticated (see
@@ -920,9 +939,9 @@ define("ember-simple-auth/session",
       },
 
       /**
-        Authentices the session with an `authenticator` and appropriate `options`.
-        __This delegates the actual authentication work to the `authenticator`__
-        and handles the returned promise accordingly (see
+        Authenticates the session with an `authenticator` and appropriate
+        `options`. __This delegates the actual authentication work to the
+        `authenticator`__ and handles the returned promise accordingly (see
         [Ember.SimpleAuth.Authenticators.Base#authenticate](#Ember-SimpleAuth-Authenticators-Base-authenticate)).
         All data the authenticator resolves with will be saved in the session.
 
@@ -937,6 +956,7 @@ define("ember-simple-auth/session",
         @return {Ember.RSVP.Promise} A promise that resolves when the session was authenticated successfully
       */
       authenticate: function(authenticatorFactory, options) {
+        Ember.assert('Session#authenticate requires the authenticator factory to be specified, was ' + authenticatorFactory, !Ember.isEmpty(authenticatorFactory));
         var _this = this;
         return new Ember.RSVP.Promise(function(resolve, reject) {
           _this.container.lookup(authenticatorFactory).authenticate(options).then(function(content) {
@@ -1100,8 +1120,8 @@ define("ember-simple-auth/stores",
     };
 
     var registerStores = function(container) {
-      container.register('session-store:local-storage', LocalStorage);
-      container.register('session-store:ephemeral', Ephemeral);
+      container.register('ember-simple-auth-session-store:local-storage', LocalStorage);
+      container.register('ember-simple-auth-session-store:ephemeral', Ephemeral);
     };
 
     __exports__.registerStores = registerStores;
@@ -1209,8 +1229,8 @@ define("ember-simple-auth/stores/ephemeral",
 
       __This store is mainly useful for testing.__
 
-      _The factory for this store is registered as `'session-store:ephemeral'` in
-      Ember's container._
+      _The factory for this store is registered as
+      `'ember-simple-auth-session-store:ephemeral'` in Ember's container._
 
       @class Ephemeral
       @namespace Stores
@@ -1274,8 +1294,8 @@ define("ember-simple-auth/stores/local_storage",
       This store will trigger the `'updated'` event when any of the keys it manages
       is changed from another tab or window.
 
-      _The factory for this store is registered as `'session-store:local-storage'`
-      in Ember's container._
+      _The factory for this store is registered as
+      `'ember-simple-auth-session-store:local-storage'` in Ember's container._
 
       @class LocalStorage
       @namespace Stores
@@ -1447,7 +1467,7 @@ define("ember-simple-auth/utils/is_secure_url",
     */
     var isSecureUrl = function(url) {
       var link  = document.createElement('a');
-      link.href = location;
+      link.href = url;
       link.href = link.href;
       return link.protocol == 'https:';
     };

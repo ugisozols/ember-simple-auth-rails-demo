@@ -80,7 +80,8 @@ define("ember-simple-auth-oauth2/authenticators/oauth2",
       will trigger the `'updated'` event each time the token was refreshed.
 
       _The factory for this authenticator is registered as
-      `'authenticator:oauth2-password-grant'` in Ember's container._
+      `'ember-simple-auth-authenticator:oauth2-password-grant'` in Ember's
+      container._
 
       @class OAuth2
       @namespace Authenticators
@@ -298,7 +299,7 @@ define("ember-simple-auth-oauth2/authorizers/oauth2",
       `Authorization` header.
 
       _The factory for this authorizer is registered as
-      `'authorizer:oauth2-bearer'` in Ember's container._
+      `'ember-simple-auth-authorizer:oauth2-bearer'` in Ember's container._
 
       @class OAuth2
       @namespace Authorizers
@@ -336,7 +337,7 @@ global.Ember.SimpleAuth.Authenticators.OAuth2 = oauth2.Authenticator;
 global.Ember.SimpleAuth.Authorizers.OAuth2    = oauth2.Authorizer;
 
 global.Ember.SimpleAuth.initializeExtension(function(container, application, options) {
-  container.register('authorizer:oauth2-bearer', global.Ember.SimpleAuth.Authorizers.OAuth2);
-  container.register('authenticator:oauth2-password-grant', global.Ember.SimpleAuth.Authenticators.OAuth2);
+  container.register('ember-simple-auth-authorizer:oauth2-bearer', global.Ember.SimpleAuth.Authorizers.OAuth2);
+  container.register('ember-simple-auth-authenticator:oauth2-password-grant', global.Ember.SimpleAuth.Authenticators.OAuth2);
 });
 })((typeof global !== 'undefined') ? global : window);
