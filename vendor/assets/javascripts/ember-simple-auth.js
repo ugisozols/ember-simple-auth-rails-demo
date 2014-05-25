@@ -128,12 +128,6 @@ define("ember-simple-auth/authenticators/base",
       [Ember.SimpleAuth.Stores.Base](#Ember-SimpleAuth-Stores-Base)) is sufficient
       for the session to be authenticated or not.
 
-      Authenticators may trigger the `'updated'` and the `'invalidated'` events.
-      The `'updated'` event signals that the session data changed while the
-      `'ìnvalidated`' event signals that the authenticator decided that the
-      session became invalid. Both events are handled by the session automatically.
-      The `'updated'` event requires the complete session data as its argument.
-
       __Custom authenticators have to be registered with Ember's dependency
       injection container__ so that the session can retrieve an instance, e.g.:
 
@@ -159,6 +153,28 @@ define("ember-simple-auth/authenticators/base",
       @uses Ember.Evented
     */
     var Base = Ember.Object.extend(Ember.Evented, {
+      /**
+        __Triggered when the data that constitutes the session is updated by the
+        authenticator__. This might happen e.g. because the authenticator refreshes
+        it or an event from is triggered from an external authentication provider.
+        The session automatically catches that event, passes the updated data back
+        to the authenticator's
+        [Ember.SimpleAuth.Authenticators.Base#restore](#Ember-SimpleAuth-Authenticators-Base-restore)
+        method and handles the result of that invocation accordingly.
+
+        @event sessionDataUpdated
+        @param {Object} data The updated session data
+      */
+      /**
+        __Triggered when the data that constitutes the session is invalidated by
+        the authenticator__. This might happen e.g. because the date expires or an
+        event is triggered from an external authentication provider. The session
+        automatically catches that event and invalidates itself.
+
+        @event sessionDataInvalidated
+        @param {Object} data The updated session data
+      */
+
       /**
         Restores the session from a set of properties. __This method is invoked by
         the session either after the application starts up and session data was
@@ -331,22 +347,6 @@ define("ember-simple-auth/core",
       return crossOriginWhitelist.indexOf(urlOrigin) > -1 || urlOrigin === documentOrigin;
     }
 
-    function setupSession(store, container) {
-      var session = Session.create({ store: store, container: container });
-      var router  = container.lookup('router:main');
-      Ember.A([
-        'sessionAuthenticationSucceeded',
-        'sessionAuthenticationFailed',
-        'sessionInvalidationSucceeded',
-        'sessionInvalidationFailed'
-      ]).forEach(function(event) {
-        session.on(event, function(error) {
-          router.send(event, error);
-        });
-      });
-      return session;
-    }
-
     var extensionInitializers = [];
 
     /**
@@ -446,7 +446,7 @@ define("ember-simple-auth/core",
 
       options.storeFactory = options.storeFactory || 'ember-simple-auth-session-store:local-storage';
       var store            = container.lookup(options.storeFactory);
-      var session          = setupSession(store, container);
+      var session          = Session.create({ store: store, container: container });
 
       container.register('ember-simple-auth-session:main', session, { instantiate: false });
       Ember.A(['controller', 'route']).forEach(function(component) {
@@ -460,6 +460,11 @@ define("ember-simple-auth/core",
           Ember.$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
             if (shouldAuthorizeRequest(options.url)) {
               authorizer.authorize(jqXHR, options);
+            }
+          });
+          Ember.$(document).ajaxError(function(event, jqXHR, setting, exception) {
+            if (jqXHR.status === 401) {
+              session.trigger('authorizationFailed');
             }
           });
         }
@@ -531,12 +536,35 @@ define("ember-simple-auth/mixins/application_route_mixin",
       invalidation fails. These actions provide a good starting point for adding
       custom behavior to these events.
 
+      __When this mixin is used and the application's ApplicationRoute defines the
+      `acticate` method, that method has to call `_super`.__
+
       @class ApplicationRouteMixin
       @namespace $mainModule
       @extends Ember.Mixin
       @static
     */
     var ApplicationRouteMixin = Ember.Mixin.create({
+      /**
+        @method activate
+        @private
+      */
+      activate: function() {
+        var _this = this;
+        Ember.A([
+          'sessionAuthenticationSucceeded',
+          'sessionAuthenticationFailed',
+          'sessionInvalidationSucceeded',
+          'sessionInvalidationFailed',
+          'authorizationFailed'
+        ]).forEach(function(event) {
+          _this.get('session').on(event, function(error) {
+            Array.prototype.unshift.call(arguments, event);
+            _this.send.apply(_this, arguments);
+          });
+        });
+      },
+
       actions: {
         /**
           This action triggers transition to the `authenticationRoute` specified in
@@ -658,17 +686,6 @@ define("ember-simple-auth/mixins/application_route_mixin",
         */
         authorizationFailed: function() {
           this.get(Configuration.sessionPropertyName).invalidate();
-        },
-
-        /**
-          @method actions.error
-          @private
-        */
-        error: function(reason) {
-          if (reason.status === 401) {
-            this.send('authorizationFailed');
-          }
-          return true;
         }
       }
     });
@@ -766,10 +783,10 @@ define("ember-simple-auth/mixins/authentication_controller_mixin",
           [Ember.SimpleAuth.Session#authenticate](#Ember-SimpleAuth-Session-authenticate)).
 
           @method actions.authenticate
-          @param {Object} options Any options the auhtenticator needs to authenticate the session
+          @param {Object} options Any options the authenticator needs to authenticate the session
         */
         authenticate: function(options) {
-          this.get(Configuration.sessionPropertyName).authenticate(this.get('authenticatorFactory'), options);
+          return this.get(Configuration.sessionPropertyName).authenticate(this.get('authenticatorFactory'), options);
         }
       }
     });
@@ -890,6 +907,50 @@ define("ember-simple-auth/session",
     */
     var Session = Ember.ObjectProxy.extend(Ember.Evented, {
       /**
+        Triggered __whenever the session is successfully authenticated__. When the
+        application uses the mixin,
+        [Ember.SimpleAuth.ApplicationRouteMixin.actions#sessionAuthenticationSucceeded](#Ember-SimpleAuth-ApplicationRouteMixin-sessionAuthenticationSucceeded)
+        will be invoked whenever this event is triggered.
+
+        @event sessionAuthenticationSucceeded
+      */
+      /**
+        Triggered __whenever an attempt to authenticate the session fails__. When
+        the application uses the mixin,
+        [Ember.SimpleAuth.ApplicationRouteMixin.actions#sessionAuthenticationFailed](#Ember-SimpleAuth-ApplicationRouteMixin-sessionAuthenticationFailed)
+        will be invoked whenever this event is triggered.
+
+        @event sessionAuthenticationFailed
+        @param {Object} error The error object; this depends on the authenticator in use, see [Ember.SimpleAuth.Authenticators.Base#authenticate](#Ember-SimpleAuth-Authenticators-Base-authenticate)
+      */
+      /**
+        Triggered __whenever the session is successfully invalidated__. When the
+        application uses the mixin,
+        [Ember.SimpleAuth.ApplicationRouteMixin.actions#sessionInvalidationSucceeded](#Ember-SimpleAuth-ApplicationRouteMixin-sessionInvalidationSucceeded)
+        will be invoked whenever this event is triggered.
+
+        @event sessionInvalidationSucceeded
+      */
+      /**
+        Triggered __whenever an attempt to invalidate the session fails__. When the
+        application uses the mixin,
+        [Ember.SimpleAuth.ApplicationRouteMixin.actions#sessionInvalidationFailed](#Ember-SimpleAuth-ApplicationRouteMixin-sessionInvalidationFailed)
+        will be invoked whenever this event is triggered.
+
+        @event sessionInvalidationFailed
+        @param {Object} error The error object; this depends on the authenticator in use, see [Ember.SimpleAuth.Authenticators.Base#invalidate](#Ember-SimpleAuth-Authenticators-Base-invalidate)
+      */
+      /**
+        Triggered __whenever the server rejects the authorization information
+        passed with a request and responds with status 401__. When the application
+        uses the mixin,
+        [Ember.SimpleAuth.ApplicationRouteMixin.actions#authorizationFailed](#Ember-SimpleAuth-ApplicationRouteMixin-authorizationFailed)
+        will be invoked whenever this event is triggered.
+
+        @event authorizationFailed
+      */
+
+      /**
         The authenticator factory used to authenticate the session. This is only
         set when the session is currently authenticated.
 
@@ -993,7 +1054,7 @@ define("ember-simple-auth/session",
         return new Ember.RSVP.Promise(function(resolve, reject) {
           var authenticator = _this.container.lookup(_this.authenticatorFactory);
           authenticator.invalidate(_this.content).then(function() {
-            authenticator.off('updated');
+            authenticator.off('sessionDataUpdated');
             _this.clear(true);
             resolve();
           }, function(error) {
@@ -1034,6 +1095,7 @@ define("ember-simple-auth/session",
       */
       setup: function(authenticatorFactory, content, trigger) {
         trigger = !!trigger && !this.get('isAuthenticated');
+        this.beginPropertyChanges();
         this.setProperties({
           isAuthenticated:      true,
           authenticatorFactory: authenticatorFactory,
@@ -1042,6 +1104,7 @@ define("ember-simple-auth/session",
         this.bindToAuthenticatorEvents();
         var data = Ember.$.extend({ authenticatorFactory: authenticatorFactory }, this.content);
         this.store.replace(data);
+        this.endPropertyChanges();
         if (trigger) {
           this.trigger('sessionAuthenticationSucceeded');
         }
@@ -1053,12 +1116,14 @@ define("ember-simple-auth/session",
       */
       clear: function(trigger) {
         trigger = !!trigger && this.get('isAuthenticated');
+        this.beginPropertyChanges();
         this.setProperties({
           isAuthenticated:      false,
           authenticatorFactory: null,
           content:              {}
         });
         this.store.clear();
+        this.endPropertyChanges();
         if (trigger) {
           this.trigger('sessionInvalidationSucceeded');
         }
@@ -1071,12 +1136,12 @@ define("ember-simple-auth/session",
       bindToAuthenticatorEvents: function() {
         var _this = this;
         var authenticator = this.container.lookup(this.authenticatorFactory);
-        authenticator.off('updated');
-        authenticator.off('invalidated');
-        authenticator.on('updated', function(content) {
+        authenticator.off('sessionDataUpdated');
+        authenticator.off('sessionDataInvalidated');
+        authenticator.on('sessionDataUpdated', function(content) {
           _this.setup(_this.authenticatorFactory, content);
         });
-        authenticator.on('invalidated', function(content) {
+        authenticator.on('sessionDataInvalidated', function(content) {
           _this.clear(true);
         });
       },
@@ -1087,7 +1152,7 @@ define("ember-simple-auth/session",
       */
       bindToStoreEvents: function() {
         var _this = this;
-        this.store.on('updated', function(content) {
+        this.store.on('sessionDataUpdated', function(content) {
           var authenticatorFactory = content.authenticatorFactory;
           if (!!authenticatorFactory) {
             delete content.authenticatorFactory;
@@ -1146,19 +1211,24 @@ define("ember-simple-auth/stores/base",
       Ember.SimpleAuth's setup
       (see [Ember.SimpleAuth.setup](#Ember-SimpleAuth-setup)).
 
-      Stores may trigger the `'updated'` event when their data changed due to
-      external actions (e.g. from another tab). The session listens to that event
-      and will handle the changes accordingly. Whenever the event is triggered by
-      the store, the session will forward the data to its authenticator which
-      decides whether the session is still valid (see
-      [Ember.SimpleAuth.Authenticators.Base#restore](#Ember-SimpleAuth-Authenticators-Base-restore)).
-
       @class Base
       @namespace Stores
       @extends Ember.Object
       @uses Ember.Evented
     */
     var Base = Ember.Object.extend(Ember.Evented, {
+      /**
+        __Triggered when the data that constitutes the session changes in the
+        store. This usually happens because the session is authenticated or
+        invalidated in another tab or window.__ The session automatically catches
+        that event, passes the updated data to its authenticator's
+        [Ember.SimpleAuth.Authenticators.Base#restore](#Ember-SimpleAuth-Authenticators-Base-restore)
+        method and handles the result of that invocation accordingly.
+
+        @event sessionDataUpdated
+        @param {Object} data The updated session data
+      */
+
       /**
         Persists the `data` in the store.
 
@@ -1291,9 +1361,6 @@ define("ember-simple-auth/stores/local_storage",
     /**
       Store that saves its data in the browser's `localStorage`.
 
-      This store will trigger the `'updated'` event when any of the keys it manages
-      is changed from another tab or window.
-
       _The factory for this store is registered as
       `'ember-simple-auth-session-store:local-storage'` in Ember's container._
 
@@ -1405,7 +1472,7 @@ define("ember-simple-auth/stores/local_storage",
             _this._lastData = data;
             Ember.run.cancel(_this._triggerChangeEventTimeout);
             _this._triggerChangeEventTimeout = Ember.run.next(_this, function() {
-              this.trigger('updated', data);
+              this.trigger('sessionDataUpdated', data);
             });
           }
         });
