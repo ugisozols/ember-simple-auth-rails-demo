@@ -536,8 +536,8 @@ define("ember-simple-auth/mixins/application_route_mixin",
       invalidation fails. These actions provide a good starting point for adding
       custom behavior to these events.
 
-      __When this mixin is used and the application's ApplicationRoute defines the
-      `acticate` method, that method has to call `_super`.__
+      __When this mixin is used and the application's `ApplicationRoute` defines
+      the `activate` method, that method has to call `_super`.__
 
       @class ApplicationRouteMixin
       @namespace $mainModule
