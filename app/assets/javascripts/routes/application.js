@@ -1,1 +1,1 @@
-SimpleAuthDemo.ApplicationRoute = Ember.Route.extend(Ember.SimpleAuth.ApplicationRouteMixin);
+SimpleAuthDemo.ApplicationRoute = Ember.Route.extend(SimpleAuth.ApplicationRouteMixin);
