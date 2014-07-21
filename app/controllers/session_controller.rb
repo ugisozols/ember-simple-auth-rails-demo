@@ -8,7 +8,7 @@ class SessionController < ApplicationController
       user.save!
       render json: { :access_token => user.token, :token_type => "bearer" }
     else
-      head 401
+      render json: {:error => "Invalid Login Details"}, status: 401
     end
   end
 end

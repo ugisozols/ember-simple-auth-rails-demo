@@ -5,3 +5,10 @@
   {{view Ember.TextField id='password' type='password' valueBinding='password' placeholder='Enter Password'}}
   <button type="submit">Login</button>
 </form>
+{{#if errorMessage}}
+	<div class="alert alert-danger">
+	  <p>
+	    <strong>Login failed:</strong> <code>{{errorMessage}}</code>
+	  </p>
+	</div>
+{{/if}}
