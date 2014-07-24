@@ -1,3 +1,14 @@
+<nav>
+  <ul class="nav navbar-nav">
+    {{#link-to 'index' tagName='li'}}
+    	Home
+  	{{/link-to}}
+    {{#link-to 'protected' tagName='li'}}
+      <a style="cursor: pointer">Protected Page</a>
+    {{/link-to}}
+  </ul>
+</nav>
+
 {{#if session.isAuthenticated}}
   <button {{ action 'invalidateSession' }}>Logout</button>
 {{else}}
