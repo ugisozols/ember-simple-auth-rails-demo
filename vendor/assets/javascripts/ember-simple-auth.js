@@ -1,6 +1,6 @@
 (function(global) {
 
-Ember.libraries.register('Ember Simple Auth', '0.6.4');
+Ember.libraries.register('Ember Simple Auth', '0.6.6');
 
 var define, requireModule;
 
@@ -304,6 +304,19 @@ define("simple-auth/configuration",
       routeAfterAuthentication: 'index',
 
       /**
+        The route to transition to if a route that implements
+        [`UnauthenticatedRouteMixin`](#SimpleAuth-UnauthenticatedRouteMixin) is
+        accessed when the session is authenticated.
+
+        @property routeIfAlreadyAuthenticated
+        @readOnly
+        @static
+        @type String
+        @default 'index'
+      */
+      routeIfAlreadyAuthenticated: 'index',
+
+      /**
         The name of the property that the session is injected with into routes and
         controllers.
 
@@ -384,6 +397,7 @@ define("simple-auth/configuration",
         var globalConfig              = getGlobalConfig('simple-auth');
         this.authenticationRoute      = globalConfig.authenticationRoute || this.authenticationRoute;
         this.routeAfterAuthentication = globalConfig.routeAfterAuthentication || this.routeAfterAuthentication;
+        this.routeIfAlreadyAuthenticated     = globalConfig.routeIfAlreadyAuthenticated || this.routeIfAlreadyAuthenticated;
         this.sessionPropertyName      = globalConfig.sessionPropertyName || this.sessionPropertyName;
         this.authorizer               = globalConfig.authorizer || this.authorizer;
         this.session                  = globalConfig.session || this.session;
@@ -681,6 +695,7 @@ define("simple-auth/mixins/authenticated-route-mixin",
         if (!this.get(Configuration.sessionPropertyName).get('isAuthenticated')) {
           transition.abort();
           this.get(Configuration.sessionPropertyName).set('attemptedTransition', transition);
+          Ember.assert('The route configured as Configuration.authenticationRoute cannot implement the AuthenticatedRouteMixin mixin as that leads to an infinite transitioning loop.', this.get('routeName') !== Configuration.authenticationRoute);
           transition.send('authenticateSession');
         }
       }
@@ -758,9 +773,9 @@ define("simple-auth/mixins/login-controller-mixin",
       ```handlebars
       <form {{action 'authenticate' on='submit'}}>
         <label for="identification">Login</label>
-        {{input id='identification' placeholder='Enter Login' value=identification}}
+        {{input value=identification placeholder='Enter Login'}}
         <label for="password">Password</label>
-        {{input id='password' placeholder='Enter Password' type='password' value=password}}
+        {{input value=password placeholder='Enter Password' type='password'}}
         <button type="submit">Login</button>
       </form>
       ```
@@ -788,6 +803,56 @@ define("simple-auth/mixins/login-controller-mixin",
           var data = this.getProperties('identification', 'password');
           this.set('password', null);
           return this._super(data);
+        }
+      }
+    });
+  });
+define("simple-auth/mixins/unauthenticated-route-mixin", 
+  ["./../configuration","exports"],
+  function(__dependency1__, __exports__) {
+    "use strict";
+    var Configuration = __dependency1__["default"];
+
+    /**
+      This mixin is for routes that should only be accessible if the session is
+      not authenticated. This is e.g. the case for the login route that should not
+      be accessible when the session is already authenticated. Including this mixin
+      in a route automatically adds a hook that redirects to the
+      [`Configuration.routeIfAlreadyAuthenticated`](#SimpleAuth-Configuration-routeIfAlreadyAuthenticated),
+      which defaults to `'index'`.
+
+      ```javascript
+      // app/routes/login.js
+      import UnauthenticatedRouteMixin from 'simple-auth/mixins/unauthenticated-route-mixin';
+
+      export default Ember.Route.extend(UnauthenticatedRouteMixin);
+      ```
+
+      `UnauthenticatedRouteMixin` performs the redirect in the `beforeModel`
+      method. __If `beforeModel` is overridden, ensure that the custom
+      implementation calls `this._super(transition)`__.
+
+      @class UnauthenticatedRouteMixin
+      @namespace SimpleAuth
+      @module simple-auth/mixins/unauthenticated-route-mixin
+      @extends Ember.Mixin
+      @static
+    */
+    __exports__["default"] = Ember.Mixin.create({
+      /**
+        This method implements the enforcement of the session not being
+        authenticated. If the session is authenticated, the current transition will
+        be aborted and a redirect will be triggered to the
+        [`Configuration.routeIfAlreadyAuthenticated`](#SimpleAuth-Configuration-routeIfAlreadyAuthenticated).
+
+        @method beforeModel
+        @param {Transition} transition The transition that lead to this route
+      */
+      beforeModel: function(transition) {
+        if (this.get(Configuration.sessionPropertyName).get('isAuthenticated')) {
+          transition.abort();
+          Ember.assert('The route configured as Configuration.routeIfAlreadyAuthenticated cannot implement the UnauthenticatedRouteMixin mixin as that leads to an infinite transitioning loop.', this.get('routeName') !== Configuration.routeIfAlreadyAuthenticated);
+          this.transitionTo(Configuration.routeIfAlreadyAuthenticated);
         }
       }
     });
@@ -1198,17 +1263,18 @@ define("simple-auth/setup",
           authorizer.set('session', session);
           Ember.$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
             if (!authorizer.isDestroyed && shouldAuthorizeRequest(options)) {
+              jqXHR.__simple_auth_authorized__ = true;
               authorizer.authorize(jqXHR, options);
             }
           });
           Ember.$(document).ajaxError(function(event, jqXHR, setting, exception) {
-            if (jqXHR.status === 401) {
+            if (!!jqXHR.__simple_auth_authorized__ && jqXHR.status === 401) {
               session.trigger('authorizationFailed');
             }
           });
         }
       } else {
-        Ember.Logger.debug('No authorizer factory was configured for Ember Simple Auth - specify one if backend requests need to be authorized.');
+        Ember.Logger.info('No authorizer was configured for Ember Simple Auth - specify one if backend requests need to be authorized.');
       }
 
       var advanceReadiness = function() {
@@ -1355,11 +1421,12 @@ define("simple-auth/stores/ephemeral",
     });
   });
 define("simple-auth/stores/local-storage", 
-  ["./base","../utils/flat-objects-are-equal","exports"],
-  function(__dependency1__, __dependency2__, __exports__) {
+  ["./base","../utils/flat-objects-are-equal","simple-auth/utils/get-global-config","exports"],
+  function(__dependency1__, __dependency2__, __dependency3__, __exports__) {
     "use strict";
     var Base = __dependency1__["default"];
     var flatObjectsAreEqual = __dependency2__["default"];
+    var getGlobalConfig = __dependency3__["default"];
 
     /**
       Store that saves its data in the browser's `localStorage`.
@@ -1389,6 +1456,9 @@ define("simple-auth/stores/local-storage",
         @private
       */
       init: function() {
+        var globalConfig = getGlobalConfig('simple-auth');
+        this.key         = globalConfig.localStorageKey || this.key;
+
         this.bindToStorageEvents();
       },
 
@@ -1495,21 +1565,22 @@ define("simple-auth/utils/is-secure-url",
       return link.protocol == 'https:';
     }
   });
-var initializer                   = requireModule('simple-auth/initializer').default;
-var Configuration                 = requireModule('simple-auth/configuration').default;
-var Session                       = requireModule('simple-auth/session').default;
-var BaseAuthenticator             = requireModule('simple-auth/authenticators/base').default;
-var BaseAuthorizer                = requireModule('simple-auth/authorizers/base').default;
-var BaseStore                     = requireModule('simple-auth/stores/base').default;
-var LocalStorageStore             = requireModule('simple-auth/stores/local-storage').default;
-var EphemeralStore                = requireModule('simple-auth/stores/ephemeral').default;
-var flatObjectsAreEqual           = requireModule('simple-auth/utils/flat-objects-are-equal').default;
-var isSecureUrl                   = requireModule('simple-auth/utils/is-secure-url').default;
-var getGlobalConfig               = requireModule('simple-auth/utils/get-global-config').default;
-var ApplicationRouteMixin         = requireModule('simple-auth/mixins/application-route-mixin').default;
-var AuthenticatedRouteMixin       = requireModule('simple-auth/mixins/authenticated-route-mixin').default;
-var AuthenticationControllerMixin = requireModule('simple-auth/mixins/authentication-controller-mixin').default;
-var LoginControllerMixin          = requireModule('simple-auth/mixins/login-controller-mixin').default;
+var initializer                   = requireModule('simple-auth/initializer')['default'];
+var Configuration                 = requireModule('simple-auth/configuration')['default'];
+var Session                       = requireModule('simple-auth/session')['default'];
+var BaseAuthenticator             = requireModule('simple-auth/authenticators/base')['default'];
+var BaseAuthorizer                = requireModule('simple-auth/authorizers/base')['default'];
+var BaseStore                     = requireModule('simple-auth/stores/base')['default'];
+var LocalStorageStore             = requireModule('simple-auth/stores/local-storage')['default'];
+var EphemeralStore                = requireModule('simple-auth/stores/ephemeral')['default'];
+var flatObjectsAreEqual           = requireModule('simple-auth/utils/flat-objects-are-equal')['default'];
+var isSecureUrl                   = requireModule('simple-auth/utils/is-secure-url')['default'];
+var getGlobalConfig               = requireModule('simple-auth/utils/get-global-config')['default'];
+var ApplicationRouteMixin         = requireModule('simple-auth/mixins/application-route-mixin')['default'];
+var AuthenticatedRouteMixin       = requireModule('simple-auth/mixins/authenticated-route-mixin')['default'];
+var AuthenticationControllerMixin = requireModule('simple-auth/mixins/authentication-controller-mixin')['default'];
+var LoginControllerMixin          = requireModule('simple-auth/mixins/login-controller-mixin')['default'];
+var UnauthenticatedRouteMixin     = requireModule('simple-auth/mixins/unauthenticated-route-mixin')['default'];
 
 global.SimpleAuth = {
   Configuration: Configuration,
@@ -1539,10 +1610,11 @@ global.SimpleAuth = {
   ApplicationRouteMixin:         ApplicationRouteMixin,
   AuthenticatedRouteMixin:       AuthenticatedRouteMixin,
   AuthenticationControllerMixin: AuthenticationControllerMixin,
-  LoginControllerMixin:          LoginControllerMixin
+  LoginControllerMixin:          LoginControllerMixin,
+  UnauthenticatedRouteMixin:     UnauthenticatedRouteMixin
 };
 
 requireModule('simple-auth/ember');
 
-Ember.libraries.register('Ember Simple Auth', '0.6.4');
+Ember.libraries.register('Ember Simple Auth', '0.6.6');
 })((typeof global !== 'undefined') ? global : window);

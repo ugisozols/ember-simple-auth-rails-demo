@@ -1,6 +1,6 @@
 (function(global) {
 
-Ember.libraries.register('Ember Simple Auth OAuth 2.0', '0.6.4');
+Ember.libraries.register('Ember Simple Auth OAuth 2.0', '0.6.6');
 
 var define, requireModule;
 
@@ -118,15 +118,15 @@ define("simple-auth-oauth2/authenticators/oauth2",
         ```js
         window.ENV = window.ENV || {};
         window.ENV['simple-auth-oauth2'] = {
-          serverTokenRevokationEndpoint: '/some/custom/endpoint'
+          serverTokenRevocationEndpoint: '/some/custom/endpoint'
         }
         ```
 
-        @property serverTokenRevokationEndpoint
+        @property serverTokenRevocationEndpoint
         @type String
         @default null
       */
-      serverTokenRevokationEndpoint: null,
+      serverTokenRevocationEndpoint: null,
 
       /**
         Sets whether the authenticator automatically refreshes access tokens.
@@ -159,7 +159,7 @@ define("simple-auth-oauth2/authenticators/oauth2",
       init: function() {
         var globalConfig                   = getGlobalConfig('simple-auth-oauth2');
         this.serverTokenEndpoint           = globalConfig.serverTokenEndpoint || this.serverTokenEndpoint;
-        this.serverTokenRevokationEndpoint = globalConfig.serverTokenRevokationEndpoint || this.serverTokenRevokationEndpoint;
+        this.serverTokenRevocationEndpoint = globalConfig.serverTokenRevocationEndpoint || this.serverTokenRevocationEndpoint;
         this.refreshAccessTokens           = globalConfig.refreshAccessTokens || this.refreshAccessTokens;
       },
 
@@ -256,11 +256,11 @@ define("simple-auth-oauth2/authenticators/oauth2",
           resolve();
         }
         return new Ember.RSVP.Promise(function(resolve, reject) {
-          if (!Ember.isEmpty(_this.serverTokenRevokationEndpoint)) {
+          if (!Ember.isEmpty(_this.serverTokenRevocationEndpoint)) {
             var requests = [];
             Ember.A(['access_token', 'refresh_token']).forEach(function(tokenType) {
               if (!Ember.isEmpty(data[tokenType])) {
-                requests.push(_this.makeRequest(_this.serverTokenRevokationEndpoint, {
+                requests.push(_this.makeRequest(_this.serverTokenRevocationEndpoint, {
                   token_type_hint: tokenType, token: data[tokenType]
                 }));
               }
@@ -444,9 +444,9 @@ define('simple-auth/utils/get-global-config',  ['exports'], function(__exports__
   __exports__['default'] = global.SimpleAuth.Utils.getGlobalConfig;
 });
 
-var initializer   = requireModule('simple-auth-oauth2/initializer').default;
-var Authenticator = requireModule('simple-auth-oauth2/authenticators/oauth2').default;
-var Authorizer    = requireModule('simple-auth-oauth2/authorizers/oauth2').default;
+var initializer   = requireModule('simple-auth-oauth2/initializer')['default'];
+var Authenticator = requireModule('simple-auth-oauth2/authenticators/oauth2')['default'];
+var Authorizer    = requireModule('simple-auth-oauth2/authorizers/oauth2')['default'];
 
 global.SimpleAuth.Authenticators.OAuth2 = Authenticator;
 global.SimpleAuth.Authorizers.OAuth2    = Authorizer;
