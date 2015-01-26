@@ -1,6 +1,6 @@
 (function(global) {
 
-Ember.libraries.register('Ember Simple Auth', '0.7.1');
+Ember.libraries.register('Ember Simple Auth', '0.7.2');
 
 var define, requireModule;
 
@@ -177,7 +177,7 @@ define("simple-auth/authenticators/base",
         rejecting promise and thus never authenticates the session.
 
         @method authenticate
-        @param {Object} options The options to authenticate the session with
+        @param {Any} [...options] The arguments that the authenticator requires to authenticate the session
         @return {Ember.RSVP.Promise} A promise that when it resolves results in the session being authenticated
       */
       authenticate: function(options) {
@@ -394,7 +394,9 @@ define("simple-auth/configuration",
         than the one the Ember.js application was loaded from; to explicitely
         enable authorization for additional origins, whitelist those origins with
         this setting. _Beware that origins consist of protocol, host and port (port
-        can be left out when it is 80 for HTTP or 443 for HTTPS)_
+        can be left out when it is 80 for HTTP or 443 for HTTPS)_, e.g.
+        `http://domain.com:1234`, `https://external.net`. You can also whitelist
+        all external origins by specifying `[*]`.
 
         @property crossOriginWhitelist
         @readOnly
@@ -451,6 +453,8 @@ define("simple-auth/mixins/application-route-mixin",
   function(__dependency1__, __exports__) {
     "use strict";
     var Configuration = __dependency1__["default"];
+
+    var routeEntryComplete = false;
 
     /**
       The mixin for the application route; defines actions to authenticate the
@@ -510,6 +514,15 @@ define("simple-auth/mixins/application-route-mixin",
     */
     __exports__["default"] = Ember.Mixin.create({
       /**
+        @method activate
+        @private
+      */
+      activate: function () {
+        routeEntryComplete = true;
+        this._super();
+      },
+
+      /**
         @method beforeModel
         @private
       */
@@ -527,7 +540,8 @@ define("simple-auth/mixins/application-route-mixin",
           ]).forEach(function(event) {
             _this.get(Configuration.sessionPropertyName).on(event, function(error) {
               Array.prototype.unshift.call(arguments, event);
-              transition.send.apply(transition, arguments);
+              var target = routeEntryComplete ? _this : transition;
+              target.send.apply(target, arguments);
             });
           });
         }
@@ -767,7 +781,7 @@ define("simple-auth/mixins/authentication-controller-mixin",
         authenticate: function(options) {
           var authenticator = this.get('authenticator');
           Ember.assert('AuthenticationControllerMixin/LoginControllerMixin require the authenticator property to be set on the controller', !Ember.isEmpty(authenticator));
-          return this.get(Configuration.sessionPropertyName).authenticate(this.get('authenticator'), options);
+          return this.get(Configuration.sessionPropertyName).authenticate(authenticator, options);
         }
       }
     });
@@ -1037,16 +1051,18 @@ define("simple-auth/session",
 
         @method authenticate
         @param {String} authenticator The authenticator factory to use as it is registered with Ember's container, see [Ember's API docs](http://emberjs.com/api/classes/Ember.Application.html#method_register)
-        @param {Object} options The options to pass to the authenticator; depending on the type of authenticator these might be a set of credentials, a Facebook OAuth Token, etc.
+        @param {Any} [...args] The arguments to pass to the authenticator; depending on the type of authenticator these might be a set of credentials, a Facebook OAuth Token, etc.
         @return {Ember.RSVP.Promise} A promise that resolves when the session was authenticated successfully
       */
-      authenticate: function(authenticator, options) {
+      authenticate: function() {
+        var args          = Array.prototype.slice.call(arguments);
+        var authenticator = args.shift();
         Ember.assert('Session#authenticate requires the authenticator factory to be specified, was ' + authenticator, !Ember.isEmpty(authenticator));
         var _this            = this;
         var theAuthenticator = this.container.lookup(authenticator);
         Ember.assert('No authenticator for factory "' + authenticator + '" could be found', !Ember.isNone(theAuthenticator));
         return new Ember.RSVP.Promise(function(resolve, reject) {
-          theAuthenticator.authenticate(options).then(function(content) {
+          theAuthenticator.authenticate.apply(theAuthenticator, args).then(function(content) {
             _this.setup(authenticator, content, true);
             resolve();
           }, function(error) {
@@ -1265,6 +1281,19 @@ define("simple-auth/setup",
       container.register('simple-auth-session:main', Session);
     }
 
+    function ajaxPrefilter(options, originalOptions, jqXHR) {
+      if (shouldAuthorizeRequest(options)) {
+        jqXHR.__simple_auth_authorized__ = true;
+        ajaxPrefilter.authorizer.authorize(jqXHR, options);
+      }
+    }
+
+    function ajaxError(event, jqXHR, setting, exception) {
+      if (!!jqXHR.__simple_auth_authorized__ && jqXHR.status === 401) {
+        ajaxError.session.trigger('authorizationFailed');
+      }
+    }
+
     var didSetupAjaxHooks = false;
 
     /**
@@ -1278,7 +1307,7 @@ define("simple-auth/setup",
       var store   = container.lookup(Configuration.store);
       var session = container.lookup(Configuration.session);
       session.setProperties({ store: store, container: container });
-      Ember.A(['controller', 'route']).forEach(function(component) {
+      Ember.A(['controller', 'route', 'component']).forEach(function(component) {
         container.injection(component, Configuration.sessionPropertyName, Configuration.session);
       });
 
@@ -1288,22 +1317,15 @@ define("simple-auth/setup",
 
       if (!Ember.isEmpty(Configuration.authorizer)) {
         var authorizer = container.lookup(Configuration.authorizer);
-        if (!!authorizer) {
-          authorizer.set('session', session);
-          if (!didSetupAjaxHooks) {
-            Ember.$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
-              if (!authorizer.isDestroyed && shouldAuthorizeRequest(options)) {
-                jqXHR.__simple_auth_authorized__ = true;
-                authorizer.authorize(jqXHR, options);
-              }
-            });
-            Ember.$(document).ajaxError(function(event, jqXHR, setting, exception) {
-              if (!!jqXHR.__simple_auth_authorized__ && jqXHR.status === 401) {
-                session.trigger('authorizationFailed');
-              }
-            });
-            didSetupAjaxHooks = true;
-          }
+        Ember.assert('The configured authorizer "' + Configuration.authorizer + '" could not be found in the container.', !Ember.isEmpty(authorizer));
+        authorizer.set('session', session);
+        ajaxPrefilter.authorizer = authorizer;
+        ajaxError.session = session;
+
+        if (!didSetupAjaxHooks) {
+          Ember.$.ajaxPrefilter('+*', ajaxPrefilter);
+          Ember.$(document).ajaxError(ajaxError);
+          didSetupAjaxHooks = true;
         }
       } else {
         Ember.Logger.info('No authorizer was configured for Ember Simple Auth - specify one if backend requests need to be authorized.');
@@ -1524,7 +1546,7 @@ define("simple-auth/stores/local-storage",
       */
       clear: function() {
         localStorage.removeItem(this.key);
-        this._lastData = null;
+        this._lastData = {};
       },
 
       /**
